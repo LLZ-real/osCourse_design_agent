@@ -1,1 +1,0 @@
-[{"type": "tool_calls", "calls": [{"id": "u1", "name": "definitely_not_a_tool", "arguments": {}}]}, {"type": "text", "content": "unknown-handled"}]
