@@ -9,7 +9,6 @@
 
 #include "config.h"
 #include "context/context.h"
-#include "context/session.h"
 #include "llm_client.h"
 #include "message.h"
 #include "tools/executor.h"
@@ -36,13 +35,8 @@ struct Agent {
   int turn_count;
   int prompt_tokens;
   int completion_tokens;
+  char *last_metrics;  /* formatted metrics string, for main.c to print after ui_idle */
 };
-
-/* ── Replay callback ────────────────────────────────────────────────── */
-
-static void replay_push(void *user_data, const char *msg) {
-  ctx_push((Context *)user_data, strdup(msg));
-}
 
 /* ── Public API ──────────────────────────────────────────────────────── */
 
@@ -50,6 +44,7 @@ Agent *agent_create(void) {
   Agent *a = calloc(1, sizeof(*a));
   if (!a)
     return NULL;
+  a->last_metrics = NULL;
   a->system_prompt = xasprintf(AGENT_SYSTEM_TEMPLATE, g_config.workdir);
   a->ctx = ctx_create(g_config.context_window);
   if (!a->ctx) {
@@ -60,14 +55,6 @@ Agent *agent_create(void) {
   ctx_add_policy(a->ctx, &offload_policy);
   ctx_add_policy(a->ctx, &summary_policy);
 
-  /* Replay auto session for crash recovery — session not yet attached so
-     ctx_push does NOT append replayed messages back to the same file. */
-  session_replay(g_config.workdir, "auto", replay_push, a->ctx);
-
-  /* Now open the auto session for append-only logging of new messages. */
-  Session *s = session_open(g_config.workdir, "auto");
-  if (s)
-    ctx_set_session(a->ctx, s);
 
   return a;
 }
@@ -78,6 +65,7 @@ void agent_free(Agent *a) {
   ctx_free(a->ctx);
   free(a->system_prompt);
   free(a->last_reply);
+  free(a->last_metrics);
   free(a);
 }
 
@@ -125,7 +113,8 @@ const char *agent_chat(Agent *a, const char *user_input) {
       free(a->last_reply);
       a->last_reply = xstrdup(response.content ? response.content : "");
       llm_response_free(&response);
-      fprintf(stderr, "[metrics] turns=%d prompt=%d completion=%d total=%d\n",
+      free(a->last_metrics);
+      a->last_metrics = xasprintf("\033[36m▸ Metrics\033[0m  turns=%d  prompt=%d  completion=%d  total=%d",
               a->turn_count, a->prompt_tokens, a->completion_tokens,
               a->prompt_tokens + a->completion_tokens);
       return a->last_reply;
@@ -149,94 +138,10 @@ const char *agent_chat(Agent *a, const char *user_input) {
   return NULL;
 }
 
-/* ── Session commands ────────────────────────────────────────────────── */
+Context *agent_get_context(Agent *a) {
+    return a ? a->ctx : NULL;
+}
 
-int agent_handle_session(Agent *a, int argc, char **argv) {
-  if (!a || argc < 1)
-    return -1;
-
-  const char *cmd = argv[0];
-
-  if (strcmp(cmd, "list") == 0) {
-    int count;
-    char **list = session_list(g_config.workdir, &count);
-    if (!list || count == 0) {
-      printf("No saved sessions.\n");
-    } else {
-      printf("Sessions:\n");
-      for (int i = 0; i < count; i++)
-        printf("  %s\n", list[i]);
-    }
-    session_free_list(list, count);
-    return 0;
-  }
-
-  if (strcmp(cmd, "save") == 0 && argc >= 2) {
-    const char *name = argv[1];
-    /* Copy auto.log → named.log */
-    char src[4096], dst[4096];
-    snprintf(src, sizeof(src), "%s/.agent/session/auto.log", g_config.workdir);
-    snprintf(dst, sizeof(dst), "%s/.agent/session/%s.log", g_config.workdir, name);
-    FILE *in = fopen(src, "r");
-    if (!in) {
-      printf("No active session to save.\n");
-      return 0;
-    }
-    FILE *out = fopen(dst, "w");
-    if (!out) {
-      fclose(in);
-      printf("Cannot write %s\n", dst);
-      return 0;
-    }
-    char buf[65536];
-    size_t n;
-    int lines = 0;
-    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
-      fwrite(buf, 1, n, out);
-      for (size_t i = 0; i < n; i++)
-        if (buf[i] == '\n')
-          lines++;
-    }
-    fclose(in);
-    fclose(out);
-    printf("Saved session as '%s' (%d messages).\n", name, lines);
-    return 0;
-  }
-
-  if (strcmp(cmd, "load") == 0 && argc >= 2) {
-    const char *name = argv[1];
-    ctx_set_session(a->ctx, NULL);
-    ctx_clear(a->ctx);
-
-    int replayed = session_replay(g_config.workdir, name, replay_push, a->ctx);
-    if (replayed == 0) {
-      printf("Session '%s' not found or empty.\n", name);
-    } else {
-      printf("Loaded session '%s' (%d messages).\n", name, replayed);
-    }
-
-    Session *s = session_open(g_config.workdir, "auto");
-    if (s)
-      ctx_set_session(a->ctx, s);
-    return 0;
-  }
-
-  if (strcmp(cmd, "new") == 0) {
-    ctx_set_session(a->ctx, NULL);
-    session_delete(g_config.workdir, "auto");
-    ctx_clear(a->ctx);
-
-    Session *s = session_open(g_config.workdir, "auto");
-    if (s)
-      ctx_set_session(a->ctx, s);
-    printf("Started a new session.\n");
-    return 0;
-  }
-
-  printf("Usage:  /session <command> [args]\n"
-         "  list       — list saved sessions\n"
-         "  save <n>   — save a named snapshot\n"
-         "  load <n>   — load a saved session\n"
-         "  new        — discard current session\n");
-  return -1;
+const char *agent_last_metrics(Agent *a) {
+    return a ? a->last_metrics : NULL;
 }

@@ -7,7 +7,8 @@
       "Bash(make test-cunit-tsan *)",
       "Bash(make test-cunit-offload *)",
       "Bash(make test-cunit-summary *)",
-      "Bash(make test *)"
+      "Bash(make test *)",
+      "Bash(timeout 60 python3 tests/run_tests.py --bin ./build/c-agent --phase a)"
     ]
   }
 }

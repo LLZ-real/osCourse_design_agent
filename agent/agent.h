@@ -7,6 +7,9 @@
  */
 typedef struct Agent Agent;
 
+/* Context type needed by agent_get_context. */
+typedef struct Context Context;
+
 Agent *agent_create(void);
 void agent_free(Agent *a);
 
@@ -18,11 +21,13 @@ void agent_free(Agent *a);
  */
 const char *agent_chat(Agent *a, const char *user_input);
 
+/* Access the context handle (for REPL session management). */
+Context *agent_get_context(Agent *a);
+
 /*
- * Session management commands.
- * argv[0] is the command name ("list", "save", "load", "new").
- * Returns 0 on success, -1 on unknown command.
+ * Get the metrics from the most recent agent_chat call.
+ * Returns a pointer valid until the next agent_chat call.
  */
-int agent_handle_session(Agent *a, int argc, char **argv);
+const char *agent_last_metrics(Agent *a);
 
 #endif

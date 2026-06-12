@@ -26,9 +26,9 @@ from harness import (
 # ── Metric extraction ────────────────────────────────────────────────────
 
 
-def _parse_metrics(stderr: str) -> dict[str, int]:
-    """Extract the [metrics] line from stderr and return as dict."""
-    m = re.search(r"\[metrics\] turns=(\d+) prompt=(\d+) completion=(\d+) total=(\d+)", stderr)
+def _parse_metrics(stdout: str) -> dict[str, int]:
+    """Extract the [metrics] line from stdout and return as dict."""
+    m = re.search(r"turns=(\d+).*?prompt=(\d+).*?completion=(\d+).*?total=(\d+)", stdout)
     if not m:
         return {}
     return {
@@ -127,7 +127,7 @@ def test_single_bash_echo(binary: str) -> None:
 
     assert_exit_ok(result)
     assert_contains(result.stdout, "echo-done")
-    metrics = _parse_metrics(result.stderr)
+    metrics = _parse_metrics(result.stdout)
     assert metrics.get("turns", -1) >= 1, f"expected ≥1 turn, got {metrics}"
     assert metrics.get("prompt", 0) > 0, f"expected positive prompt tokens, got {metrics}"
     assert metrics.get("completion", 0) > 0, f"expected positive completion tokens, got {metrics}"
@@ -141,7 +141,7 @@ def test_two_bash_turns(binary: str) -> None:
 
     assert_exit_ok(result)
     assert_contains(result.stdout, "final-done")
-    metrics = _parse_metrics(result.stderr)
+    metrics = _parse_metrics(result.stdout)
     assert metrics.get("turns", 0) >= 3, f"expected ≥3 turns for 2-hop chain (2 tool + 1 text), got {metrics}"
 
 
@@ -162,7 +162,7 @@ def test_parallel_reads_metrics(binary: str) -> None:
         assert_contains(r1["content"], "alpha", label="r1")
         assert_contains(r2["content"], "beta", label="r2")
 
-        metrics = _parse_metrics(result.stderr)
+        metrics = _parse_metrics(result.stdout)
         assert metrics.get("turns", 0) >= 1, f"expected ≥1 turn, got {metrics}"
     finally:
         import shutil
@@ -184,7 +184,7 @@ def test_read_edit_read_chain(binary: str) -> None:
             content = fh.read()
         assert_contains(content, "new", label="edit result")
 
-        metrics = _parse_metrics(result.stderr)
+        metrics = _parse_metrics(result.stdout)
         assert metrics.get("turns", 0) >= 4, f"expected ≥4 turns for 3-hop chain, got {metrics}"
     finally:
         import shutil
@@ -206,7 +206,7 @@ def test_write_file_metrics(binary: str) -> None:
         if not os.path.isfile(target):
             raise AssertionError("write_file did not create out.txt")
 
-        metrics = _parse_metrics(result.stderr)
+        metrics = _parse_metrics(result.stdout)
         assert metrics.get("turns", 0) >= 1
         assert metrics.get("total", 0) > 0
     finally:
@@ -229,7 +229,7 @@ def test_mixed_bash_read_serial(binary: str) -> None:
         b1 = find_tool_message(second, "b1")
         assert_contains(b1["content"], "mixed", label="bash output")
 
-        metrics = _parse_metrics(result.stderr)
+        metrics = _parse_metrics(result.stdout)
         assert metrics.get("turns", 0) >= 1
     finally:
         import shutil
