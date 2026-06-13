@@ -164,7 +164,7 @@ test-cunit-offload:
 	@echo "  CC   test_offload (asan)"
 	@$(CC) $(CFLAGS) $(ASAN_FLAGS) tests/cunit/test_offload.c \
 	    config.c message.c util.c \
-	    context/context.c context/token.c \
+	    context/context.c context/token.c context/session.c \
 	    tests/cunit/fake_summarizer.c \
 	    libs/cJSON.c \
 	    -o $(BUILD)/cunit-asan/test_offload $(LDLIBS)
@@ -175,7 +175,7 @@ test-cunit-summary:
 	@echo "  CC   test_summary (asan)"
 	@$(CC) $(CFLAGS) $(ASAN_FLAGS) tests/cunit/test_summary.c \
 	    config.c message.c util.c \
-	    context/context.c context/token.c \
+	    context/context.c context/token.c context/session.c \
 	    tests/cunit/fake_summarizer.c \
 	    libs/cJSON.c \
 	    -o $(BUILD)/cunit-asan/test_summary $(LDLIBS)
