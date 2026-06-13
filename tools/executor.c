@@ -36,6 +36,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 typedef struct {
     LLMToolCall *call;
@@ -43,6 +44,8 @@ typedef struct {
     ToolResult result;
     int index;
 } ToolTask;
+
+static int g_silent = 0;
 
 static void run_one(ToolTask *task) {
     if (task->def) {
@@ -53,12 +56,17 @@ static void run_one(ToolTask *task) {
             .output = xasprintf("unknown tool: %s", task->call->name ? task->call->name : "(null)"),
         };
     }
-    ui_tool_done(task->index, task->result.ok, task->result.output);
+    if (!g_silent)
+        ui_tool_done(task->index, task->result.ok, task->result.output);
 }
 
 /* ── Thread pool for Phase B parallel execution ─────────────────────── */
 
 static thread_pool *g_pool = NULL;
+
+void executor_set_silent(int silent) {
+    g_silent = silent;
+}
 
 static void tool_task_wrapper(void *arg) {
     run_one((ToolTask *)arg);
@@ -95,7 +103,8 @@ int executor_run_tools(
         views[i].args_display = args_json[i];
     }
 
-    ui_begin_tools(count, views);
+    if (!g_silent)
+        ui_begin_tools(count, views);
 
     /*
      * Phase B: when count >= 2 and every tool is registered and read_only,
@@ -122,7 +131,8 @@ int executor_run_tools(
             run_one(&tasks[i]);
     }
 
-    ui_idle();
+    if (!g_silent)
+        ui_idle();
 
     int rc = 0;
     for (int i = 0; i < count; i++) {

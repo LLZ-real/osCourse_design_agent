@@ -7,6 +7,7 @@
 
 #include <readline/history.h>
 #include <readline/readline.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,34 +15,41 @@
 
 /* ── Session helpers ─────────────────────────────────────────────────── */
 
-static char g_loaded_session[256] = "";  /* tracks which session was loaded */
+static char g_loaded_session[256] = "";
 
-static void copy_session_file(const char *src, const char *dst) {
-    FILE *in = fopen(src, "r");
-    if (!in) return;
-    FILE *out = fopen(dst, "w");
-    if (!out) { fclose(in); return; }
-    char buf[65536]; size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), in)) > 0)
-        fwrite(buf, 1, n, out);
-    fclose(in); fclose(out);
+static void write_history_to(const MessageList *h, const char *path) {
+    if (h->len == 0) return;
+    FILE *out = fopen(path, "w");
+    if (!out) return;
+    for (int i = 0; i < h->len; i++)
+        fprintf(out, "%s\n", h->items[i]);
+    fclose(out);
 }
 
-static void auto_save_on_exit(void) {
-    char auto_path[4096];
-    snprintf(auto_path, sizeof(auto_path), "%s/.agent/session/auto.log", g_config.workdir);
+static void auto_save_on_exit(const Agent *a) {
+    const MessageList *h = ctx_history(agent_get_context(a));
 
-    /* Always save to last.log for quick recovery. */
+    /* Save to last.log for quick recovery. */
     char last_path[4096];
     snprintf(last_path, sizeof(last_path), "%s/.agent/session/last.log", g_config.workdir);
-    copy_session_file(auto_path, last_path);
+    write_history_to(h, last_path);
 
-    /* If a named session was loaded, update it too so new messages are saved back. */
+    /* Also save to a timestamped name so earlier sessions aren't lost. */
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    char ts[32];
+    strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", t);
+    char stamped_path[4096];
+    snprintf(stamped_path, sizeof(stamped_path), "%s/.agent/session/auto-%s.log",
+             g_config.workdir, ts);
+    write_history_to(h, stamped_path);
+
+    /* Save back to the loaded named session if any. */
     if (g_loaded_session[0]) {
         char named_path[4096];
         snprintf(named_path, sizeof(named_path), "%s/.agent/session/%s.log",
                  g_config.workdir, g_loaded_session);
-        copy_session_file(auto_path, named_path);
+        write_history_to(h, named_path);
     }
 }
 
@@ -57,6 +65,77 @@ static void open_fresh_session(Context *ctx) {
     if (s) ctx_set_session(ctx, s);
 }
 
+/* ── Display helpers ─────────────────────────────────────────────────── */
+
+static void print_session_summary(Context *ctx, int total) {
+    const MessageList *h = ctx_history(ctx);
+    int start = total > 10 ? total - 10 : 0;
+
+    for (int i = start; i < total; i++) {
+        cJSON *msg = cJSON_Parse(h->items[i]);
+        if (!msg) continue;
+        cJSON *role_j = cJSON_GetObjectItem(msg, "role");
+        cJSON *content_j = cJSON_GetObjectItem(msg, "content");
+        const char *role = role_j && cJSON_IsString(role_j) ? role_j->valuestring : "";
+        const char *content = content_j && cJSON_IsString(content_j) ? content_j->valuestring : "";
+        const char *icon = "";
+        const char *color = "";
+        if (strcmp(role, "user") == 0)      { icon = "\342\227\200"; color = "32"; }  /* ◀ green */
+        else if (strcmp(role, "assistant") == 0) { icon = "\342\226\266"; color = "36"; }  /* ▶ cyan */
+        else if (strcmp(role, "tool") == 0)      { icon = "\342\232\231"; color = "33"; }  /* ⚙ yellow */
+        else                                      { icon = "?";         color = "90"; }
+
+        if (content) {
+            int limit = (strcmp(role, "tool") == 0) ? 150 :
+                        (strcmp(role, "assistant") == 0) ? 300 : 200;
+            size_t len = strlen(content);
+            if (len > (size_t)limit) {
+                char buf[384];
+                snprintf(buf, sizeof(buf), "%.*s... \033[90m(%zu bytes)\033[0m", limit, content, len);
+                printf("  \033[%sm%s\033[0m %s\n", color, icon, buf);
+            } else {
+                printf("  \033[%sm%s\033[0m %s\n", color, icon, content);
+            }
+        }
+        cJSON_Delete(msg);
+    }
+    if (start > 0)
+        printf("  \033[90m... (%d earlier messages)\033[0m\n", start);
+}
+
+static int pick_session_name(char *out, size_t out_cap) {
+    int count;
+    char **list = session_list(g_config.workdir, &count);
+    if (!list || count == 0) {
+        printf("No saved sessions.\n");
+        session_free_list(list, count);
+        return -1;
+    }
+
+    printf("Sessions:\n");
+    for (int i = 0; i < count; i++)
+        printf("  \033[36m[%d]\033[0m  %s\n", i, list[i]);
+
+    printf("Enter number (or blank to cancel): ");
+    fflush(stdout);
+
+    char line[64];
+    if (!fgets(line, sizeof(line), stdin)) {
+        session_free_list(list, count);
+        return -1;
+    }
+
+    int idx = -1;
+    if (sscanf(line, "%d", &idx) == 1 && idx >= 0 && idx < count) {
+        snprintf(out, out_cap, "%s", list[idx]);
+        session_free_list(list, count);
+        return 0;
+    }
+
+    session_free_list(list, count);
+    return -1;
+}
+
 /* ── REPL: /session commands ─────────────────────────────────────────── */
 
 static int cmd_session(Agent *a, const char *arg) {
@@ -69,7 +148,7 @@ static int cmd_session(Agent *a, const char *arg) {
         printf("Usage:\n"
                "  /session list              — list saved sessions\n"
                "  /session save <name>       — save a named snapshot\n"
-               "  /session load <name>       — load a saved session\n"
+               "  /session load [name]       — load / pick a saved session\n"
                "  /session new               — discard current session\n");
         return 1;
     }
@@ -81,38 +160,46 @@ static int cmd_session(Agent *a, const char *arg) {
             printf("No saved sessions.\n");
         else
             for (int i = 0; i < count; i++)
-                printf("  %s\n", list[i]);
+                printf("  \033[36m[%d]\033[0m  %s\n", i, list[i]);
         session_free_list(list, count);
         return 1;
     }
 
     if (strcmp(cmd, "save") == 0 && name[0]) {
-        char src[4096], dst[4096];
-        snprintf(src, sizeof(src), "%s/.agent/session/auto.log", g_config.workdir);
+        const MessageList *h = ctx_history(ctx);
+        if (h->len == 0) { printf("Nothing to save — session is empty.\n"); return 1; }
+        char dst[4096];
         snprintf(dst, sizeof(dst), "%s/.agent/session/%s.log", g_config.workdir, name);
-        FILE *in = fopen(src, "r");
-        if (!in) { printf("No active session to save.\n"); return 1; }
         FILE *out = fopen(dst, "w");
-        if (!out) { fclose(in); printf("Cannot write %s\n", dst); return 1; }
-        char buf[65536]; size_t n;
-        int lines = 0;
-        while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
-            fwrite(buf, 1, n, out);
-            for (size_t i = 0; i < n; i++) if (buf[i] == '\n') lines++;
-        }
-        fclose(in); fclose(out);
-        printf("Saved session as '%s' (%d messages).\n", name, lines);
+        if (!out) { printf("Cannot write %s\n", dst); return 1; }
+        for (int i = 0; i < h->len; i++)
+            fprintf(out, "%s\n", h->items[i]);
+        fclose(out);
+        snprintf(g_loaded_session, sizeof(g_loaded_session), "%s", name);
+        printf("Saved session as '%s' (%d messages).\n", name, h->len);
         return 1;
     }
 
-    if (strcmp(cmd, "load") == 0 && name[0]) {
+    if (strcmp(cmd, "load") == 0) {
+        char load_name[256];
+        if (name[0]) {
+            snprintf(load_name, sizeof(load_name), "%s", name);
+        } else {
+            if (pick_session_name(load_name, sizeof(load_name)) != 0) {
+                printf("Cancelled.\n");
+                return 1;
+            }
+        }
+
         ctx_set_session(ctx, NULL);
         ctx_clear(ctx);
-        int replayed = session_replay(g_config.workdir, name, replay_push, ctx);
-        printf("Loaded session '%s' (%d messages).\n", name, replayed);
+        int replayed = session_replay(g_config.workdir, load_name, replay_push, ctx);
+        printf("Loaded session '\033[36m%s\033[0m' (%d messages).\n", load_name, replayed);
+        if (replayed > 0)
+            print_session_summary(ctx, replayed);
         Session *s = session_open(g_config.workdir, "auto");
         if (s) ctx_set_session(ctx, s);
-        strncpy(g_loaded_session, name, sizeof(g_loaded_session) - 1);
+        snprintf(g_loaded_session, sizeof(g_loaded_session), "%s", load_name);
         return 1;
     }
 
@@ -125,6 +212,15 @@ static int cmd_session(Agent *a, const char *arg) {
 
     printf("Unknown session command: %s\n", cmd);
     return 1;
+}
+
+/* ── Signal handling for clean shutdown ──────────────────────────────── */
+
+static volatile int g_sigint_caught = 0;
+
+static void handle_sigint(int sig) {
+    (void)sig;
+    g_sigint_caught = 1;
 }
 
 /* ── Main ────────────────────────────────────────────────────────────── */
@@ -142,6 +238,8 @@ int main(void) {
         return 1;
     }
 
+    signal(SIGINT, handle_sigint);
+
     /* Start a fresh auto-session for logging. */
     Session *s = session_open(g_config.workdir, "auto");
     if (s)
@@ -152,13 +250,20 @@ int main(void) {
     int rc = 0;
 
     for (;;) {
+        if (g_sigint_caught) {
+            g_sigint_caught = 0;
+            printf("\n");
+            auto_save_on_exit(a);
+            break;
+        }
+
         char *input = readline("> ");
         if (!input)
             break;
 
         if (strcmp(input, "exit") == 0 || strcmp(input, "quit") == 0 ||
             strcmp(input, "q") == 0) {
-            auto_save_on_exit();
+            auto_save_on_exit(a);
             free(input);
             break;
         }

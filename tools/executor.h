@@ -33,4 +33,7 @@ int executor_run_tools(
     LLMToolCall tool_calls[], int count, char *out_msgs[], char *err, size_t err_cap
 );
 
+/* When silent, executor skips all UI calls (for subagent mode). */
+void executor_set_silent(int silent);
+
 #endif /* TOOLS_EXECUTOR_H */

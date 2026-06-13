@@ -11,6 +11,7 @@
 #include "context/context.h"
 #include "llm_client.h"
 #include "message.h"
+
 #include "tools/executor.h"
 #include "tools/tools.h"
 #include "ui/ui.h"
@@ -25,6 +26,7 @@
 static const char AGENT_SYSTEM_TEMPLATE[] =
     "You are a coding agent running in the CLI at %s.\n"
     "Use the provided tools when you need to run shell commands.\n"
+    "For complex multi-step tasks you can delegate to the subagent tool.\n"
     "Return a short, final text reply when the task is done.";
 
 struct Agent {
@@ -111,7 +113,18 @@ const char *agent_chat(Agent *a, const char *user_input) {
 
     if (response.n_tool_calls == 0) {
       free(a->last_reply);
-      a->last_reply = xstrdup(response.content ? response.content : "");
+      /* Strip common model artifacts from output. */
+      const char *raw = response.content ? response.content : "";
+      const char *tag = strstr(raw, "<tool_call>");
+      if (tag) {
+          size_t len = (size_t)(tag - raw);
+          char *s = xmalloc(len + 1);
+          memcpy(s, raw, len);
+          s[len] = '\0';
+          a->last_reply = s;
+      } else {
+          a->last_reply = xstrdup(raw);
+      }
       llm_response_free(&response);
       free(a->last_metrics);
       a->last_metrics = xasprintf("\033[36m▸ Metrics\033[0m  turns=%d  prompt=%d  completion=%d  total=%d",
