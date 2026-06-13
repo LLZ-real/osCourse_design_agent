@@ -4,10 +4,10 @@
 #include "context/session.h"
 #include "tools/tools.h"
 #include "ui/ui.h"
+#include "util.h"
 
 #include <readline/history.h>
 #include <readline/readline.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -149,6 +149,7 @@ static int cmd_session(Agent *a, const char *arg) {
                "  /session list              — list saved sessions\n"
                "  /session save <name>       — save a named snapshot\n"
                "  /session load [name]       — load / pick a saved session\n"
+               "  /session delete <name>     — delete a saved session\n"
                "  /session new               — discard current session\n");
         return 1;
     }
@@ -203,6 +204,12 @@ static int cmd_session(Agent *a, const char *arg) {
         return 1;
     }
 
+    if (strcmp(cmd, "delete") == 0 && name[0]) {
+        session_delete(g_config.workdir, name);
+        printf("Deleted session '%s'.\n", name);
+        return 1;
+    }
+
     if (strcmp(cmd, "new") == 0) {
         open_fresh_session(ctx);
         g_loaded_session[0] = '\0';
@@ -212,15 +219,6 @@ static int cmd_session(Agent *a, const char *arg) {
 
     printf("Unknown session command: %s\n", cmd);
     return 1;
-}
-
-/* ── Signal handling for clean shutdown ──────────────────────────────── */
-
-static volatile int g_sigint_caught = 0;
-
-static void handle_sigint(int sig) {
-    (void)sig;
-    g_sigint_caught = 1;
 }
 
 /* ── Main ────────────────────────────────────────────────────────────── */
@@ -238,8 +236,6 @@ int main(void) {
         return 1;
     }
 
-    signal(SIGINT, handle_sigint);
-
     /* Start a fresh auto-session for logging. */
     Session *s = session_open(g_config.workdir, "auto");
     if (s)
@@ -250,13 +246,6 @@ int main(void) {
     int rc = 0;
 
     for (;;) {
-        if (g_sigint_caught) {
-            g_sigint_caught = 0;
-            printf("\n");
-            auto_save_on_exit(a);
-            break;
-        }
-
         char *input = readline("> ");
         if (!input)
             break;

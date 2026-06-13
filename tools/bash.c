@@ -7,10 +7,12 @@
  * the *other half*: after fork, the parent holds pipefd[0] and pid, and
  * must turn that into a ToolResult the agent can send back.
  */
+#include "config.h"
 #include "tools/tools.h"
 #include "util.h"
 
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +39,13 @@ ToolDef bash_def = {
     .read_only = false,
 };
 
+static void alarm_handler(int sig) {
+    (void)sig;
+    extern pid_t g_child_pid;
+    if (g_child_pid > 0)
+        kill(g_child_pid, SIGTERM);
+}
+
 ToolResult bash_tool_exec(cJSON *args) {
   const char *cmd = cJSON_GetStringValue(cJSON_GetObjectItem(args, "command"));
   if (!cmd)
@@ -50,6 +59,7 @@ ToolResult bash_tool_exec(cJSON *args) {
         .output = xasprintf("pipe failed: %s", strerror(errno)),
     };
 
+  struct sigaction old_sa;
   pid_t pid = fork();
   if (pid < 0) {
     int e = errno;
@@ -59,7 +69,10 @@ ToolResult bash_tool_exec(cJSON *args) {
                         .output = xasprintf("fork: %s", strerror(e))};
   }
 
+  g_child_pid = pid;
+
   if (pid == 0) {
+    setpgid(0, 0);  /* put child in its own process group */
     close(pipefd[0]);
     /* dprintf + _exit avoid stdio-buffer double-flush after fork. */
     if (dup2(pipefd[1], STDOUT_FILENO) < 0 ||
@@ -98,12 +111,23 @@ ToolResult bash_tool_exec(cJSON *args) {
 
   close(pipefd[0]);
 
+  /* Set a timeout for tool execution. */
+  if (g_config.tool_timeout > 0) {
+      signal(SIGALRM, alarm_handler);
+      alarm(g_config.tool_timeout);
+  }
+
   int status = 0;
   if (waitpid(pid, &status, 0) < 0) {
     free(output);
+    g_child_pid = 0;
+    alarm(0);
     return (ToolResult){.ok = false,
                         .output = xasprintf("waitpid failed: %s", strerror(errno))};
   }
+
+  g_child_pid = 0;
+  alarm(0);  /* cancel timeout */
 
   if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
     return (ToolResult){.ok = true, .output = output};

@@ -128,7 +128,8 @@ def test_tools_advertised(binary: str) -> None:
 
     tools = inspect["requests"][0]["tools"]
     names = sorted(t["function"]["name"] for t in tools)
-    expected = sorted(["bash", "read_file", "write_file", "edit_file", "subagent"])
+    expected = sorted(["bash", "read_file", "write_file", "edit_file", "subagent",
+                        "memory_write", "memory_read", "memory_list", "skill_load"])
     if names != expected:
         raise AssertionError(
             f"tool list does not match the registry. expected {expected}, got {names}"

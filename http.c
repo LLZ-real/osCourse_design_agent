@@ -2,6 +2,8 @@
 
 #include "util.h"
 
+#include <unistd.h>
+
 #include <errno.h>
 #include <netdb.h>
 #include <stdio.h>
@@ -61,10 +63,7 @@ int recv_all(int fd, int timeout_sec, char **out, size_t *out_len, char *err,
              size_t err_cap) {
   if (timeout_sec > 0) {
     struct timeval tv = {.tv_sec = timeout_sec};
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0) {
-      snprintf(err, err_cap, "setsockopt: %s", strerror(errno));
-      return -1;
-    }
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
   }
 
   size_t cap = 4096;

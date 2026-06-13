@@ -106,14 +106,16 @@ int ctx_reclaim(Context *ctx, char *err, size_t err_cap) {
       continue;
 
     int before = ctx_total_tokens(ctx);
-    printf("[context] policy \"%s\" triggered at %.1f%% (%d tokens)\n", p->name,
+    fprintf(stderr, "[context] policy \"%s\" triggered at %.1f%% (%d tokens)\n", p->name,
            ctx_budget_usage(ctx) * 100.0f, before);
 
     if (p->apply(ctx, err, err_cap) != 0)
       return -1;
 
-    printf("[context] policy \"%s\" complete: %d -> %d tokens\n", p->name,
-           before, ctx_total_tokens(ctx));
+    int after = ctx_total_tokens(ctx);
+    if (after < before)
+      fprintf(stderr, "[context] policy \"%s\" complete: %d -> %d tokens\n", p->name,
+             before, after);
   }
 
   int total = ctx_total_tokens(ctx);
@@ -239,14 +241,11 @@ static int summary_apply(Context *ctx, char *err, size_t err_cap) {
                        &response, err, err_cap);
     msg_list_free(&prefix);
 
-    if (rc != 0)
-        return -1;
-
-    if (!response.content || response.content[0] == '\0') {
-        if (err && err_cap > 0)
-            snprintf(err, err_cap, "summary policy: LLM returned empty content");
+    if (rc != 0 || !response.content || response.content[0] == '\0') {
+        /* LLM failure should not crash the agent — skip summary this round. */
+        fprintf(stderr, "[context] policy \"summary\" skipped (LLM returned empty or error)\n");
         llm_response_free(&response);
-        return -1;
+        return 0;
     }
 
     char summary_buf[4096];

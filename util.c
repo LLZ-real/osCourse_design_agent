@@ -4,6 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+/* ── Global ESC interrupt ───────────────────────────────────────────── */
+
+volatile int g_interrupted = 0;
+pid_t g_child_pid = 0;
 
 static void die_oom(void) {
   fprintf(stderr, "Fatal: out of memory\n");

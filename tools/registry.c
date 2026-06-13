@@ -34,6 +34,10 @@ extern ToolDef read_file_def;
 extern ToolDef write_file_def;
 extern ToolDef edit_file_def;
 extern ToolDef subagent_def;
+extern ToolDef memory_write_def;
+extern ToolDef memory_read_def;
+extern ToolDef memory_list_def;
+extern ToolDef skill_load_def;
 
 static ToolDef *g_tools[MAX_REGISTERED_TOOLS];
 static int g_tools_count = 0;
@@ -47,6 +51,10 @@ void tools_init(void) {
     tool_register(&write_file_def);
     tool_register(&edit_file_def);
     tool_register(&subagent_def);
+    tool_register(&memory_write_def);
+    tool_register(&memory_read_def);
+    tool_register(&memory_list_def);
+    tool_register(&skill_load_def);
 }
 
 void tool_register(ToolDef *def) {

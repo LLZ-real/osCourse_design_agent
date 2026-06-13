@@ -27,7 +27,8 @@ static const char AGENT_SYSTEM_TEMPLATE[] =
     "You are a coding agent running in the CLI at %s.\n"
     "Use the provided tools when you need to run shell commands.\n"
     "For complex multi-step tasks you can delegate to the subagent tool.\n"
-    "Return a short, final text reply when the task is done.";
+    "Return a short, final text reply when the task is done."
+    "%s";  /* skill listing appended here */
 
 struct Agent {
   char *system_prompt;
@@ -47,7 +48,10 @@ Agent *agent_create(void) {
   if (!a)
     return NULL;
   a->last_metrics = NULL;
-  a->system_prompt = xasprintf(AGENT_SYSTEM_TEMPLATE, g_config.workdir);
+
+  char *skills = skill_build_listing();
+  a->system_prompt = xasprintf(AGENT_SYSTEM_TEMPLATE, g_config.workdir, skills ? skills : "");
+  free(skills);
   a->ctx = ctx_create(g_config.context_window);
   if (!a->ctx) {
     free(a->system_prompt);

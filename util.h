@@ -9,7 +9,9 @@
 #ifndef UTIL_H
 #define UTIL_H
 
+#include <stdbool.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 void *xmalloc(size_t size);
 void *xrealloc(void *ptr, size_t size);
@@ -17,5 +19,7 @@ char *xstrdup(const char *s);
 
 /* Like asprintf but exits on failure. Never returns NULL. */
 char *xasprintf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+
+extern pid_t g_child_pid;
 
 #endif

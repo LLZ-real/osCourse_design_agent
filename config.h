@@ -18,6 +18,9 @@ typedef struct {
   int context_window;
   float offload_threshold;
   float summary_threshold;
+
+  /* Tool execution timeout (seconds). 0 = no timeout. */
+  int tool_timeout;
 } AgentConfig;
 
 extern AgentConfig g_config;

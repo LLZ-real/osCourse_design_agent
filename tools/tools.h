@@ -44,4 +44,7 @@ extern const char *BASH_TOOL_SCHEMA;
 
 ToolResult bash_tool_exec(cJSON *args);
 
+/* Skill system: build listing of available skills for the system prompt. */
+char *skill_build_listing(void);
+
 #endif
