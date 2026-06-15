@@ -194,7 +194,8 @@ static int cmd_session(Agent *a, const char *arg) {
 
         ctx_set_session(ctx, NULL);
         ctx_clear(ctx);
-        int replayed = session_replay(g_config.workdir, load_name, replay_push, ctx);
+        int replayed = session_replay(g_config.workdir, load_name, replay_push, ctx,
+                                       g_config.replay_max);
         printf("Loaded session '\033[36m%s\033[0m' (%d messages).\n", load_name, replayed);
         if (replayed > 0)
             print_session_summary(ctx, replayed);

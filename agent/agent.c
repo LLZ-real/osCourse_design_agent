@@ -27,6 +27,8 @@ static const char AGENT_SYSTEM_TEMPLATE[] =
     "You are a coding agent running in the CLI at %s.\n"
     "Use the provided tools when you need to run shell commands.\n"
     "For complex multi-step tasks you can delegate to the subagent tool.\n"
+    "If the user's request matches one of the available skills below, "
+    "call skill_load to load its full instructions before proceeding.\n"
     "Return a short, final text reply when the task is done."
     "%s";  /* skill listing appended here */
 
@@ -39,6 +41,7 @@ struct Agent {
   int prompt_tokens;
   int completion_tokens;
   char *last_metrics;  /* formatted metrics string, for main.c to print after ui_idle */
+  char reclaim_error[128];
 };
 
 /* ── Public API ──────────────────────────────────────────────────────── */
@@ -95,8 +98,14 @@ const char *agent_chat(Agent *a, const char *user_input) {
     /* Reclaim context budget before building the next request. */
     char reclaim_err[256];
     if (ctx_reclaim(a->ctx, reclaim_err, sizeof(reclaim_err)) != 0) {
-      fprintf(stderr, "context reclaim error: %s\n", reclaim_err);
-      return NULL;
+      free(a->last_reply);
+      a->last_reply = xasprintf(
+          "Error: %s\n"
+          "Try increasing CONTEXT_WINDOW or adjusting "
+          "OFFLOAD_THRESHOLD / SUMMARY_THRESHOLD.\n",
+          reclaim_err);
+      snprintf(a->reclaim_error, sizeof(a->reclaim_error), "%s", reclaim_err);
+      return a->last_reply;
     }
 
     LLMResponse response = {0};

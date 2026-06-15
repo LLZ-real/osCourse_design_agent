@@ -113,9 +113,13 @@ int ctx_reclaim(Context *ctx, char *err, size_t err_cap) {
       return -1;
 
     int after = ctx_total_tokens(ctx);
-    if (after < before)
-      fprintf(stderr, "[context] policy \"%s\" complete: %d -> %d tokens\n", p->name,
-             before, after);
+    int saved = before - after;
+    if (saved > 0)
+        fprintf(stderr, "[context] policy \"%s\" complete: %d -> %d tokens (saved %d)\n",
+               p->name, before, after, saved);
+    else
+        fprintf(stderr, "[context] policy \"%s\" complete: no messages qualified\n",
+               p->name);
   }
 
   int total = ctx_total_tokens(ctx);
@@ -152,6 +156,8 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
     int limit = ctx->history.len - KEEP_RECENT_MSGS;
     if (limit < 0)
         limit = 0;
+
+    int offloaded = 0;
 
     for (int i = 0; i < limit; i++) {
         cJSON *msg = cJSON_Parse(ctx->history.items[i]);
@@ -196,7 +202,14 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
 
         ctx_replace_msg(ctx, i, new_json);
         ctx->next_offload_id++;
+        offloaded++;
     }
+
+    /* Print offload summary even if the outer ctx_reclaim loop will
+       also print the token diff — this shows how many messages moved. */
+    if (offloaded > 0)
+        fprintf(stderr, "[context] offloaded %d messages to .agent/offload/\n",
+                offloaded);
 
     return 0;
 }

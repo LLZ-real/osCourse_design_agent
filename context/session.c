@@ -85,7 +85,8 @@ void session_close(Session *s) {
 /* ── Replay ──────────────────────────────────────────────────────────── */
 
 int session_replay(const char *workdir, const char *name,
-                   void (*cb)(void *, const char *), void *user_data) {
+                   void (*cb)(void *, const char *), void *user_data,
+                   int max_messages) {
     if (!workdir || !name || !cb)
         return 0;
 
@@ -96,24 +97,45 @@ int session_replay(const char *workdir, const char *name,
     if (!fp)
         return 0;
 
+    /* Read all valid messages into a dynamic array so we can skip
+       the oldest ones when max_messages is set. */
+    int cap = 64;
     int count = 0;
+    char **buf = xmalloc((size_t)cap * sizeof(char *));
+
     char line[65536];
     while (fgets(line, sizeof(line), fp)) {
-        /* Remove trailing newline. */
         size_t len = strlen(line);
         if (len > 0 && line[len - 1] == '\n')
             line[len - 1] = '\0';
 
-        /* Skip blank lines and malformed JSON (crash recovery safety). */
         if (line[0] != '{')
             continue;
 
-        cb(user_data, line);
-        count++;
+        if (count >= cap) {
+            cap *= 2;
+            buf = xrealloc(buf, (size_t)cap * sizeof(char *));
+        }
+        buf[count++] = xstrdup(line);
+    }
+    fclose(fp);
+
+    /* Determine which messages to replay. */
+    int start = 0;
+    if (max_messages > 0 && count > max_messages)
+        start = count - max_messages;
+
+    int replayed = 0;
+    for (int i = start; i < count; i++) {
+        cb(user_data, buf[i]);
+        replayed++;
     }
 
-    fclose(fp);
-    return count;
+    for (int i = 0; i < count; i++)
+        free(buf[i]);
+    free(buf);
+
+    return replayed;
 }
 
 /* ── Listing ─────────────────────────────────────────────────────────── */

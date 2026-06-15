@@ -61,6 +61,7 @@ void config_init(void) {
   g_config.max_tokens = parse_env_int("MAX_TOKENS", 8000, 1, INT_MAX);
 
   g_config.tool_timeout = parse_env_int("TOOL_TIMEOUT", 120, 0, 3600);
+  g_config.replay_max = parse_env_int("REPLAY_MAX", 20, 0, 1000);
 
   /* Part 3: context management */
   g_config.context_window = parse_env_int("CONTEXT_WINDOW", 32000, 1, INT_MAX);
