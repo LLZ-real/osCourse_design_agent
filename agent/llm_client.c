@@ -314,6 +314,13 @@ int llm_chat(const MessageList *messages, const char *system_prompt,
 error:
   llm_response_free(out);
   cJSON_Delete(resp_json);
+  /* Clean up intermediate cJSON objects that may not yet be attached
+     to req_json when the error occurred.  cJSON_Delete(NULL) is safe. */
+  cJSON_Delete(tool_schema);
+  cJSON_Delete(tool_function);
+  cJSON_Delete(tool_obj);
+  cJSON_Delete(tools_arr);
+  cJSON_Delete(messages_arr);
   free(resp);
   free(request);
   free(req_body);

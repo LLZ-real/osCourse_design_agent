@@ -26,7 +26,7 @@ static void write_history_to(const MessageList *h, const char *path) {
     fclose(out);
 }
 
-static void auto_save_on_exit(const Agent *a) {
+static void auto_save_on_exit(Agent *a) {
     const MessageList *h = ctx_history(agent_get_context(a));
 
     /* Save to last.log for quick recovery. */

@@ -42,8 +42,9 @@ ToolDef bash_def = {
 static void alarm_handler(int sig) {
     (void)sig;
     extern pid_t g_child_pid;
+    extern pid_t g_child_pid;
     if (g_child_pid > 0)
-        kill(g_child_pid, SIGTERM);
+        kill(-g_child_pid, SIGTERM);  /* kill entire process group */
 }
 
 ToolResult bash_tool_exec(cJSON *args) {
@@ -59,7 +60,6 @@ ToolResult bash_tool_exec(cJSON *args) {
         .output = xasprintf("pipe failed: %s", strerror(errno)),
     };
 
-  struct sigaction old_sa;
   pid_t pid = fork();
   if (pid < 0) {
     int e = errno;
@@ -74,6 +74,14 @@ ToolResult bash_tool_exec(cJSON *args) {
   if (pid == 0) {
     setpgid(0, 0);  /* put child in its own process group */
     close(pipefd[0]);
+    /* Set timeout in the child itself — each child owns its own alarm,
+       avoiding the process-wide signal races that plague a parent-side
+       alarm.  When the alarm fires the child self-terminates, which
+       closes the pipe and unblocks the parent's read loop below. */
+    if (g_config.tool_timeout > 0) {
+        signal(SIGALRM, SIG_DFL);
+        alarm(g_config.tool_timeout);
+    }
     /* dprintf + _exit avoid stdio-buffer double-flush after fork. */
     if (dup2(pipefd[1], STDOUT_FILENO) < 0 ||
         dup2(pipefd[1], STDERR_FILENO) < 0)
@@ -86,6 +94,15 @@ ToolResult bash_tool_exec(cJSON *args) {
 
   close(pipefd[1]);
 
+  /* Parent-side watchdog: if the child doesn't self-terminate in time
+     (e.g. a grandchild holds the pipe open), SIGALRM kills the whole
+     child process group so the pipe closes.  Set this BEFORE the read
+     loop so the timeout actually protects against stuck children. */
+  if (g_config.tool_timeout > 0) {
+      signal(SIGALRM, alarm_handler);
+      alarm(g_config.tool_timeout);
+  }
+
   char *output = NULL;
   size_t output_size = 0;
   char buf[4096];
@@ -96,6 +113,8 @@ ToolResult bash_tool_exec(cJSON *args) {
         continue;
       int e = errno;
       close(pipefd[0]);
+      alarm(0);
+      g_child_pid = 0;
       waitpid(pid, NULL, 0);
       free(output);
       return (ToolResult){.ok = false,
@@ -110,24 +129,17 @@ ToolResult bash_tool_exec(cJSON *args) {
   }
 
   close(pipefd[0]);
-
-  /* Set a timeout for tool execution. */
-  if (g_config.tool_timeout > 0) {
-      signal(SIGALRM, alarm_handler);
-      alarm(g_config.tool_timeout);
-  }
+  alarm(0);  /* cancel timeout */
 
   int status = 0;
   if (waitpid(pid, &status, 0) < 0) {
     free(output);
     g_child_pid = 0;
-    alarm(0);
     return (ToolResult){.ok = false,
                         .output = xasprintf("waitpid failed: %s", strerror(errno))};
   }
 
   g_child_pid = 0;
-  alarm(0);  /* cancel timeout */
 
   if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
     return (ToolResult){.ok = true, .output = output};

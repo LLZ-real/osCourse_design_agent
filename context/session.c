@@ -6,6 +6,7 @@
  * so the agent can pick up where it left off.
  */
 #include "context/session.h"
+#include "util.h"
 
 #include <dirent.h>
 #include <stdio.h>
@@ -129,7 +130,7 @@ char **session_list(const char *workdir, int *out_count) {
 
     int cap = 16;
     int count = 0;
-    char **names = malloc((size_t)cap * sizeof(char *));
+    char **names = xmalloc((size_t)cap * sizeof(char *));
 
     struct dirent *entry;
     while ((entry = readdir(d)) != NULL) {
@@ -141,7 +142,7 @@ char **session_list(const char *workdir, int *out_count) {
         size_t nlen = (size_t)(dot - entry->d_name);
         if (count >= cap) {
             cap *= 2;
-            names = realloc(names, (size_t)cap * sizeof(char *));
+            names = xrealloc(names, (size_t)cap * sizeof(char *));
         }
         names[count] = strndup(entry->d_name, nlen);
         count++;
