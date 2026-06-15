@@ -68,39 +68,29 @@ static void open_fresh_session(Context *ctx) {
 /* ── Display helpers ─────────────────────────────────────────────────── */
 
 static void print_session_summary(Context *ctx, int total) {
+    /* Show up to 10 most recent messages, fully, matching prompt format. */
     const MessageList *h = ctx_history(ctx);
     int start = total > 10 ? total - 10 : 0;
 
     for (int i = start; i < total; i++) {
         cJSON *msg = cJSON_Parse(h->items[i]);
         if (!msg) continue;
-        cJSON *role_j = cJSON_GetObjectItem(msg, "role");
-        cJSON *content_j = cJSON_GetObjectItem(msg, "content");
-        const char *role = role_j && cJSON_IsString(role_j) ? role_j->valuestring : "";
-        const char *content = content_j && cJSON_IsString(content_j) ? content_j->valuestring : "";
-        const char *icon = "";
-        const char *color = "";
-        if (strcmp(role, "user") == 0)      { icon = "\342\227\200"; color = "32"; }  /* ◀ green */
-        else if (strcmp(role, "assistant") == 0) { icon = "\342\226\266"; color = "36"; }  /* ▶ cyan */
-        else if (strcmp(role, "tool") == 0)      { icon = "\342\232\231"; color = "33"; }  /* ⚙ yellow */
-        else                                      { icon = "?";         color = "90"; }
+        const char *role = cJSON_GetStringValue(cJSON_GetObjectItem(msg, "role"));
+        const char *content = cJSON_GetStringValue(cJSON_GetObjectItem(msg, "content"));
+        if (!role || !content) { cJSON_Delete(msg); continue; }
 
-        if (content) {
-            int limit = (strcmp(role, "tool") == 0) ? 150 :
-                        (strcmp(role, "assistant") == 0) ? 300 : 200;
-            size_t len = strlen(content);
-            if (len > (size_t)limit) {
-                char buf[384];
-                snprintf(buf, sizeof(buf), "%.*s... \033[90m(%zu bytes)\033[0m", limit, content, len);
-                printf("  \033[%sm%s\033[0m %s\n", color, icon, buf);
-            } else {
-                printf("  \033[%sm%s\033[0m %s\n", color, icon, content);
-            }
+        if (strcmp(role, "user") == 0) {
+            /* "> content" — same format as the prompt line */
+            printf("\033[36m>\033[0m %s\n", content);
+        } else if (strcmp(role, "assistant") == 0) {
+            /* "  content" — aligned after "> " */
+            printf("  %s\n", content);
         }
+        /* skip tool/internal messages */
         cJSON_Delete(msg);
     }
     if (start > 0)
-        printf("  \033[90m... (%d earlier messages)\033[0m\n", start);
+        printf("\033[90m... (%d earlier messages)\033[0m\n", start);
 }
 
 static int pick_session_name(char *out, size_t out_cap) {
@@ -192,10 +182,15 @@ static int cmd_session(Agent *a, const char *arg) {
             }
         }
 
+        /* Clear screen for a clean slate. */
+        printf("\033[2J\033[H");
+        fflush(stdout);
+
         ctx_set_session(ctx, NULL);
         ctx_clear(ctx);
+        /* Replay all messages (0 = no limit) so the agent has full history. */
         int replayed = session_replay(g_config.workdir, load_name, replay_push, ctx,
-                                       g_config.replay_max);
+                                       0);
         printf("Loaded session '\033[36m%s\033[0m' (%d messages).\n", load_name, replayed);
         if (replayed > 0)
             print_session_summary(ctx, replayed);
