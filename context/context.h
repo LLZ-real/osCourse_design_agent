@@ -51,6 +51,8 @@ void ctx_clear(Context *ctx);
 int ctx_reclaim(Context *ctx, char *err, size_t err_cap);
 
 float ctx_budget_usage(const Context *ctx); /* fraction in [0,1] */
+int ctx_total_tokens(const Context *ctx);   /* estimated token count */
+int ctx_window_size(const Context *ctx);    /* CONTEXT_WINDOW configured */
 const MessageList *ctx_history(const Context *ctx);
 
 #endif /* CONTEXT_H */

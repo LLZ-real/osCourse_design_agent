@@ -11,7 +11,8 @@
  * so large LLM responses fit.
  */
 
-int tcp_connect(const char *host, int port, char *err, size_t err_cap);
+int tcp_connect(const char *host, int port, int timeout_sec,
+                char *err, size_t err_cap);
 
 int send_all(int fd, const void *buf, size_t len);
 

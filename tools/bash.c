@@ -87,7 +87,7 @@ ToolResult bash_tool_exec(cJSON *args) {
         dup2(pipefd[1], STDERR_FILENO) < 0)
       _exit(127);
     close(pipefd[1]);
-    execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+    execl("/bin/bash", "bash", "-c", cmd, (char *)NULL);
     dprintf(STDERR_FILENO, "exec failed: %s\n", strerror(errno));
     _exit(127);
   }

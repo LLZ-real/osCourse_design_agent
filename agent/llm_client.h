@@ -46,9 +46,15 @@ void llm_response_free(LLMResponse *resp);
  *                   anything you allocate inside it
  *   err, err_cap:   error buffer, filled on failure
  *
+ * Timeout is read from LLM_TIMEOUT env var (default 60s).
  * Returns 0 on success, -1 on any error (transport, HTTP status, parse).
  */
 int llm_chat(const MessageList *messages, const char *system_prompt,
              const char *model, LLMResponse *out, char *err, size_t err_cap);
+
+/* Like llm_chat but with an explicit timeout (overrides LLM_TIMEOUT env). */
+int llm_chat_with_timeout(const MessageList *messages, const char *system_prompt,
+                          const char *model, int timeout_sec,
+                          LLMResponse *out, char *err, size_t err_cap);
 
 #endif

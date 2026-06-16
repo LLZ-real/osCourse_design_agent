@@ -169,6 +169,7 @@ test-cunit-offload:
 	    config.c message.c util.c \
 	    context/context.c context/token.c context/session.c \
 	    tests/cunit/fake_summarizer.c \
+    tests/cunit/stub_llm_to.c \
 	    libs/cJSON.c \
 	    -o $(BUILD)/cunit-asan/test_offload $(LDLIBS)
 	@$(BUILD)/cunit-asan/test_offload
@@ -180,6 +181,7 @@ test-cunit-summary:
 	    config.c message.c util.c \
 	    context/context.c context/token.c context/session.c \
 	    tests/cunit/fake_summarizer.c \
+    tests/cunit/stub_llm_to.c \
 	    libs/cJSON.c \
 	    -o $(BUILD)/cunit-asan/test_summary $(LDLIBS)
 	@$(BUILD)/cunit-asan/test_summary

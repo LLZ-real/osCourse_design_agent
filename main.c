@@ -16,6 +16,15 @@
 /* ── Session helpers ─────────────────────────────────────────────────── */
 
 static char g_loaded_session[256] = "";
+static Agent *g_agent_for_atexit = NULL;
+
+/* auto_save_on_exit is defined below. */
+static void auto_save_on_exit(Agent *a);
+
+static void atexit_save_session(void) {
+    if (!g_agent_for_atexit) return;
+    auto_save_on_exit(g_agent_for_atexit);
+}
 
 static void write_history_to(const MessageList *h, const char *path) {
     if (h->len == 0) return;
@@ -232,6 +241,10 @@ int main(void) {
         return 1;
     }
 
+    /* Auto-save session even on crash / SIGTERM. */
+    g_agent_for_atexit = a;
+    atexit(atexit_save_session);
+
     /* Start a fresh auto-session for logging. */
     Session *s = session_open(g_config.workdir, "auto");
     if (s)
@@ -251,6 +264,26 @@ int main(void) {
             auto_save_on_exit(a);
             free(input);
             break;
+        }
+
+        if (strcmp(input, "/context") == 0) {
+            Context *ctx = agent_get_context(a);
+            int total = ctx_total_tokens(ctx);
+            int window = ctx_window_size(ctx);
+            float usage = ctx_budget_usage(ctx);
+            const MessageList *h = ctx_history(ctx);
+            printf("Context: %d / %d tokens (%.1f%%)\n"
+                   "Messages: %d\n"
+                   "Offload threshold:  %.0f%% (%d tokens)\n"
+                   "Summary threshold:  %.0f%% (%d tokens)\n",
+                   total, window, usage * 100.0,
+                   h->len,
+                   g_config.offload_threshold * 100,
+                   (int)(window * g_config.offload_threshold),
+                   g_config.summary_threshold * 100,
+                   (int)(window * g_config.summary_threshold));
+            free(input);
+            continue;
         }
 
         if (strncmp(input, "/session", 8) == 0) {
@@ -277,6 +310,7 @@ int main(void) {
         }
     }
 
+    g_agent_for_atexit = NULL;  /* prevent atexit from using freed agent */
     agent_free(a);
     ui_stop();
     return rc;

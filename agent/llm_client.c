@@ -19,7 +19,21 @@
 #include <string.h>
 #include <unistd.h>
 
-#define LLM_TIMEOUT_SEC 120
+/* Connect + send + recv timeout for LLM requests (seconds).
+   Override via LLM_TIMEOUT env var.  Default 60.
+   When g_forced_llm_to > 0 it overrides the env var — used by the
+   summary policy to set a shorter timeout without changing the API. */
+int g_forced_llm_to = 0;
+
+static int llm_timeout_sec(void) {
+    if (g_forced_llm_to > 0) return g_forced_llm_to;
+    const char *v = getenv("LLM_TIMEOUT");
+    if (v && v[0]) {
+        long n = strtol(v, NULL, 10);
+        if (n > 0 && n < 3600) return (int)n;
+    }
+    return 60;
+}
 
 static void set_err(char *err, size_t err_cap, const char *fmt, ...) {
   if (!err || err_cap == 0)
@@ -48,6 +62,13 @@ void llm_response_free(LLMResponse *resp) {
 
 int llm_chat(const MessageList *messages, const char *system_prompt,
              const char *model, LLMResponse *out, char *err, size_t err_cap) {
+    return llm_chat_with_timeout(messages, system_prompt, model,
+                                 llm_timeout_sec(), out, err, err_cap);
+}
+
+int llm_chat_with_timeout(const MessageList *messages, const char *system_prompt,
+             const char *model, int timeout_sec,
+             LLMResponse *out, char *err, size_t err_cap) {
   /*
    * TODO(student, Part 1A):
    * 1. Build the request body. It is a JSON object with fields
@@ -191,7 +212,8 @@ int llm_chat(const MessageList *messages, const char *system_prompt,
       g_config.llm_host, g_config.llm_port, g_config.api_key,
       strlen(req_body), req_body);
 
-  sock = tcp_connect(g_config.llm_host, g_config.llm_port, err_buf, err_buf_cap);
+  sock = tcp_connect(g_config.llm_host, g_config.llm_port, llm_timeout_sec(),
+                       err_buf, err_buf_cap);
   if (sock < 0)
     goto error;
 
@@ -201,7 +223,7 @@ int llm_chat(const MessageList *messages, const char *system_prompt,
   }
 
   size_t resp_len = 0;
-  if (recv_all(sock, LLM_TIMEOUT_SEC, &resp, &resp_len, err_buf, err_buf_cap) <
+  if (recv_all(sock, llm_timeout_sec(), &resp, &resp_len, err_buf, err_buf_cap) <
       0) {
     goto error;
   }

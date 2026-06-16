@@ -5,15 +5,19 @@
 #include <unistd.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <netdb.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <sys/time.h>
 #include <unistd.h>
 
-int tcp_connect(const char *host, int port, char *err, size_t err_cap) {
+int tcp_connect(const char *host, int port, int timeout_sec,
+                char *err, size_t err_cap) {
   char port_buf[16];
   snprintf(port_buf, sizeof(port_buf), "%d", port);
 
@@ -31,12 +35,47 @@ int tcp_connect(const char *host, int port, char *err, size_t err_cap) {
     return -1;
   }
 
+  /* Set send/receive timeouts so the whole HTTP request won't hang
+     indefinitely.  These are inherited by connect() when we use
+     a non-blocking handshake below. */
+  struct timeval tv = { .tv_sec = timeout_sec };
+  setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+  /* Connect with timeout: put fd in non-blocking mode, then poll. */
+  int fl = fcntl(fd, F_GETFL, 0);
+  fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+
   if (connect(fd, res->ai_addr, res->ai_addrlen) < 0) {
-    snprintf(err, err_cap, "connect: %s", strerror(errno));
-    close(fd);
-    freeaddrinfo(res);
-    return -1;
+    if (errno != EINPROGRESS) {
+      snprintf(err, err_cap, "connect: %s", strerror(errno));
+      close(fd);
+      freeaddrinfo(res);
+      return -1;
+    }
+    /* Wait for the connection to complete (or timeout). */
+    struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+    int ret = poll(&pfd, 1, timeout_sec * 1000);
+    if (ret <= 0) {
+      snprintf(err, err_cap, "connect: %s",
+               ret == 0 ? "timed out" : strerror(errno));
+      close(fd);
+      freeaddrinfo(res);
+      return -1;
+    }
+    /* Check if connect succeeded (no error on the socket). */
+    int so_err = 0;
+    socklen_t slen = sizeof(so_err);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_err, &slen) < 0 || so_err) {
+      snprintf(err, err_cap, "connect: %s", so_err ? strerror(so_err) : strerror(errno));
+      close(fd);
+      freeaddrinfo(res);
+      return -1;
+    }
   }
+
+  /* Restore blocking mode. */
+  fcntl(fd, F_SETFL, fl);
 
   freeaddrinfo(res);
   return fd;
@@ -66,11 +105,39 @@ int recv_all(int fd, int timeout_sec, char **out, size_t *out_len, char *err,
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
   }
 
+  /* Track total elapsed time so a slow-trickling peer can't keep us alive
+     beyond timeout_sec even though each individual recv() finishes within
+     the per-call SO_RCVTIMEO. */
+  struct timespec deadline = {0, 0};
+  if (timeout_sec > 0) {
+    clock_gettime(CLOCK_MONOTONIC, &deadline);
+    deadline.tv_sec += timeout_sec;
+  }
+
   size_t cap = 4096;
   size_t len = 0;
   char *buf = xmalloc(cap);
 
   for (;;) {
+    /* Check total deadline BEFORE each recv, so a slow peer can't
+       keep us alive by trickling data just inside SO_RCVTIMEO. */
+    if (timeout_sec > 0) {
+      struct timespec now;
+      clock_gettime(CLOCK_MONOTONIC, &now);
+      if (now.tv_sec >= deadline.tv_sec) {
+        snprintf(err, err_cap, "recv timed out (%ds total)", timeout_sec);
+        free(buf);
+        return -1;
+      }
+      /* Shrink SO_RCVTIMEO to the remaining budget so a single
+         stuck recv() doesn't wait longer than the total deadline. */
+      int left = (int)(deadline.tv_sec - now.tv_sec);
+      if (left > 0) {
+        struct timeval tv = { .tv_sec = left };
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+      }
+    }
+
     if (len + 1 >= cap) {
       cap *= 2;
       buf = xrealloc(buf, cap);

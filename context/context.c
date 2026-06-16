@@ -12,6 +12,13 @@
 #include <string.h>
 #include <sys/stat.h>
 
+/* Context policy messages go to stderr (not stdout) so they don't collide
+   with the UI spinner thread that owns stdout during thinking. */
+#define CTX_MSG(...)  do { fprintf(stderr, __VA_ARGS__); fflush(stderr); } while(0)
+
+/* Set by summary_apply to cap its LLM call at a shorter timeout. */
+extern int g_forced_llm_to;
+
 /* ── Core context operations ─────────────────────────────────────────── */
 
 Context *ctx_create(int context_window) {
@@ -68,6 +75,8 @@ float ctx_budget_usage(const Context *ctx) {
   return (float)ctx_total_tokens(ctx) / (float)ctx->context_window;
 }
 
+int ctx_window_size(const Context *ctx) { return ctx->context_window; }
+
 const MessageList *ctx_history(const Context *ctx) { return &ctx->history; }
 
 void ctx_replace_msg(Context *ctx, int index, char *new_json) {
@@ -106,7 +115,7 @@ int ctx_reclaim(Context *ctx, char *err, size_t err_cap) {
       continue;
 
     int before = ctx_total_tokens(ctx);
-    fprintf(stderr, "[context] policy \"%s\" triggered at %.1f%% (%d tokens)\n", p->name,
+    CTX_MSG("[context] policy \"%s\" triggered at %.1f%% (%d tokens)\n", p->name,
            ctx_budget_usage(ctx) * 100.0f, before);
 
     if (p->apply(ctx, err, err_cap) != 0)
@@ -115,10 +124,10 @@ int ctx_reclaim(Context *ctx, char *err, size_t err_cap) {
     int after = ctx_total_tokens(ctx);
     int saved = before - after;
     if (saved > 0)
-        fprintf(stderr, "[context] policy \"%s\" complete: %d -> %d tokens (saved %d)\n",
+        CTX_MSG("[context] policy \"%s\" complete: %d -> %d tokens (saved %d)\n",
                p->name, before, after, saved);
     else
-        fprintf(stderr, "[context] policy \"%s\" complete: no messages qualified\n",
+        CTX_MSG("[context] policy \"%s\" complete: no messages qualified\n",
                p->name);
   }
 
@@ -200,6 +209,13 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
         char *new_json = cJSON_PrintUnformatted(msg);
         cJSON_Delete(msg);
 
+        if (!new_json) {
+            /* Rare allocation failure — skip this message rather than
+               storing NULL in the history (which would crash on next
+               ctx_total_tokens → strlen(NULL)). */
+            continue;
+        }
+
         ctx_replace_msg(ctx, i, new_json);
         ctx->next_offload_id++;
         offloaded++;
@@ -208,7 +224,7 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
     /* Print offload summary even if the outer ctx_reclaim loop will
        also print the token diff — this shows how many messages moved. */
     if (offloaded > 0)
-        fprintf(stderr, "[context] offloaded %d messages to .agent/offload/\n",
+        CTX_MSG("[context] offloaded %d messages to .agent/offload/\n",
                 offloaded);
 
     return 0;
@@ -250,12 +266,15 @@ static int summary_apply(Context *ctx, char *err, size_t err_cap) {
     free(body);
 
     LLMResponse response = {0};
+    /* Summary is best-effort: short timeout so it doesn't block the main flow. */
+    g_forced_llm_to = 30;
     int rc = llm_chat(&prefix, SUMMARY_SYSTEM_PROMPT, g_config.model,
                        &response, err, err_cap);
+    g_forced_llm_to = 0;
     msg_list_free(&prefix);
 
     if (rc != 0 || !response.content || response.content[0] == '\0') {
-        fprintf(stderr, "[context] policy \"summary\" skipped (LLM returned empty or error)\n");
+        CTX_MSG("[context] policy \"summary\" skipped (LLM returned empty or error)\n");
         llm_response_free(&response);
         if (err && err_cap > 0)
             snprintf(err, err_cap, "summary policy: LLM returned empty or error");
