@@ -123,6 +123,7 @@ $(CC) $(CFLAGS) $(1) tests/cunit/$(2).c \
     config.c message.c util.c \
     tools/registry.c tools/sandbox.c \
     tools/bash.c tools/read.c tools/write.c tools/edit.c \
+    tests/cunit/stub_tools.c \
     libs/cJSON.c \
     -o $(BUILD)/cunit-$(3)/$(2) $(LDLIBS)
 endef
@@ -132,6 +133,8 @@ $(CC) $(CFLAGS) $(1) tests/cunit/test_executor.c \
     config.c message.c util.c \
     tools/registry.c tools/sandbox.c tools/executor.c tools/thread_pool.c \
     tools/bash.c tools/read.c tools/write.c tools/edit.c \
+    tools/memory.c tools/skill.c tools/subagent.c \
+    agent/llm_client.c http.c \
     ui/ui.c ui/render.c \
     libs/cJSON.c $(EXTRA_SRCS) \
     -o $(BUILD)/cunit-$(2)/test_executor $(LDLIBS)

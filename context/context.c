@@ -255,10 +255,11 @@ static int summary_apply(Context *ctx, char *err, size_t err_cap) {
     msg_list_free(&prefix);
 
     if (rc != 0 || !response.content || response.content[0] == '\0') {
-        /* LLM failure should not crash the agent — skip summary this round. */
         fprintf(stderr, "[context] policy \"summary\" skipped (LLM returned empty or error)\n");
         llm_response_free(&response);
-        return 0;
+        if (err && err_cap > 0)
+            snprintf(err, err_cap, "summary policy: LLM returned empty or error");
+        return -1;
     }
 
     char summary_buf[4096];

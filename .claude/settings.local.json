@@ -8,7 +8,10 @@
       "Bash(make test-cunit-offload *)",
       "Bash(make test-cunit-summary *)",
       "Bash(make test *)",
-      "Bash(timeout 60 python3 tests/run_tests.py --bin ./build/c-agent --phase a)"
+      "Bash(timeout 60 python3 tests/run_tests.py --bin ./build/c-agent --phase a)",
+      "Bash(make test-b *)",
+      "Bash(make test-c *)",
+      "Bash(make test-cunit *)"
     ]
   }
 }
