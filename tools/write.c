@@ -42,7 +42,7 @@ static ToolResult tool_write(cJSON *args) {
     if (!content_json || !cJSON_IsString(content_json))
         return (ToolResult){.ok = false, .output = xstrdup("missing 'content' argument")};
 
-    char *resolved = resolve_workspace_path(path_json->valuestring);
+    char *resolved = resolve_workspace_path_mkparent(path_json->valuestring);
     if (!resolved)
         return (ToolResult){
             .ok = false,

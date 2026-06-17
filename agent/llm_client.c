@@ -32,7 +32,7 @@ static int llm_timeout_sec(void) {
         long n = strtol(v, NULL, 10);
         if (n > 0 && n < 3600) return (int)n;
     }
-    return 60;
+    return 6000;
 }
 
 static void set_err(char *err, size_t err_cap, const char *fmt, ...) {

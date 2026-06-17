@@ -16,6 +16,8 @@ struct Context {
   ContextPolicy *policies[MAX_POLICIES];
   int policy_count;
   struct Session *session;   /* non-NULL when session logging is active */
+  int last_prompt_tokens;    /* real token count from last llm_chat */
+  int history_len_at_sync;   /* history.len when last_prompt_tokens was set */
 };
 
 extern ContextPolicy offload_policy;

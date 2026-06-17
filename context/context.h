@@ -55,4 +55,9 @@ int ctx_total_tokens(const Context *ctx);   /* estimated token count */
 int ctx_window_size(const Context *ctx);    /* CONTEXT_WINDOW configured */
 const MessageList *ctx_history(const Context *ctx);
 
+/* Feed back the LLM's real prompt-token count so ctx_total_tokens
+   uses a more accurate baseline (strlen/4 only for messages added
+   since the last LLM call).  Call this after each successful llm_chat. */
+void ctx_sync_real_tokens(Context *ctx, int prompt_tokens);
+
 #endif /* CONTEXT_H */

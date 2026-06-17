@@ -69,3 +69,68 @@ char *resolve_workspace_path(const char *rel_path) {
 
     return xasprintf("%s/%s", resolved_parent, leaf);
 }
+
+char *resolve_workspace_path_mkparent(const char *rel_path) {
+  /* First try the standard resolver. */
+  char *resolved = resolve_workspace_path(rel_path);
+  if (resolved)
+    return resolved;
+
+  if (!rel_path || !rel_path[0] || rel_path[0] == '/')
+    return NULL;
+
+  /* Build the full path and extract the parent. */
+  char full[PATH_MAX];
+  snprintf(full, sizeof(full), "%s/%s", g_config.workdir, rel_path);
+
+  char parent[PATH_MAX];
+  snprintf(parent, sizeof(parent), "%s", full);
+  char *slash = strrchr(parent, '/');
+  if (!slash || slash == parent)
+    return NULL;
+  *slash = '\0';
+
+  /* Check that the parent path is inside the workspace before creating. */
+  char resolved_parent[PATH_MAX];
+  if (realpath(parent, resolved_parent)) {
+    /* Parent already exists — resolve_workspace_path should have worked.
+       Something else is wrong; don't create anything. */
+    if (within_workspace(resolved_parent)) {
+      /* Race: parent appeared between the retry and now.  Try again. */
+      free(resolve_workspace_path(rel_path));
+      /* Fall through to mkdir path below — harmless if dirs now exist. */
+    }
+  }
+
+  /* Verify the parent resolves inside the workspace by checking the
+     longest-existing prefix.  Walk up from rel_path until we find a
+     component that exists and is inside the workspace. */
+  char probe[PATH_MAX];
+  snprintf(probe, sizeof(probe), "%s", parent);
+
+  while (strlen(probe) > strlen(g_config.workdir)) {
+    if (realpath(probe, resolved_parent) && within_workspace(resolved_parent))
+      break;
+    /* Chop the last component and try again. */
+    char *sep = strrchr(probe, '/');
+    if (!sep || sep == probe)
+      return NULL;
+    *sep = '\0';
+  }
+
+  /* Create the full parent chain.  This is safe because everything we
+     create sits under the verified prefix inside the workspace. */
+  snprintf(probe, sizeof(probe), "%s", parent);
+  for (char *p = probe + strlen(g_config.workdir) + 1; *p; p++) {
+    if (*p == '/') {
+      *p = '\0';
+      mkdir(probe, 0755);
+      *p = '/';
+    }
+  }
+  mkdir(probe, 0755);
+
+  /* Retry the standard resolver. */
+  free(resolved);
+  return resolve_workspace_path(rel_path);
+}

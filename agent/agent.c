@@ -21,7 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_TURNS 20
+#define MAX_TURNS 2000
 
 static const char AGENT_SYSTEM_TEMPLATE[] =
     "You are a coding agent running in the CLI at %s.\n"
@@ -118,6 +118,9 @@ const char *agent_chat(Agent *a, const char *user_input) {
 
     a->prompt_tokens += response.prompt_tokens;
     a->completion_tokens += response.completion_tokens;
+
+    /* Let context reclaim use the LLM's real token count. */
+    ctx_sync_real_tokens(a->ctx, response.prompt_tokens);
 
     if (response.raw_message) {
       ctx_push(a->ctx, response.raw_message);
