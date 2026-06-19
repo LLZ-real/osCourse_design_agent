@@ -11,7 +11,9 @@
       "Bash(timeout 60 python3 tests/run_tests.py --bin ./build/c-agent --phase a)",
       "Bash(make test-b *)",
       "Bash(make test-c *)",
-      "Bash(make test-cunit *)"
+      "Bash(make test-cunit *)",
+      "Read(//home/lilinzhen/**)",
+      "Bash(timeout 30 pdflatex -interaction=nonstopmode report.tex)"
     ]
   }
 }

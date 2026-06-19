@@ -4,3 +4,6 @@ build/
 .agent/
 *.swp
 tests/.mock_script_*.json
+.claude/
+*.log
+tags
